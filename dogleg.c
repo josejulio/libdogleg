@@ -18,7 +18,7 @@
 // used to consolidate the casts
 #define P(A, index) ((unsigned int*)((A)->p))[index]
 #define I(A, index) ((unsigned int*)((A)->i))[index]
-#define X(A, index) ((double*      )((A)->x))[index]
+#define X(A, index) ((float*      )((A)->x))[index]
 
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -33,19 +33,19 @@ static int MAX_ITERATIONS = 100;
 // "large". The solver will quickly move down to something reasonable. Only the
 // user really knows if this is "large" or not, so they should change this via
 // the API
-static double TRUSTREGION0 = 1.0e3;
+static float TRUSTREGION0 = 1.0e3;
 
 // These are probably OK to leave alone. Tweaking them can maybe result in
 // slightly faster convergence
-static double TRUSTREGION_DECREASE_FACTOR    = 0.1;
-static double TRUSTREGION_INCREASE_FACTOR    = 2;
-static double TRUSTREGION_INCREASE_THRESHOLD = 0.75;
-static double TRUSTREGION_DECREASE_THRESHOLD = 0.25;
+static float TRUSTREGION_DECREASE_FACTOR    = 0.1;
+static float TRUSTREGION_INCREASE_FACTOR    = 2;
+static float TRUSTREGION_INCREASE_THRESHOLD = 0.75;
+static float TRUSTREGION_DECREASE_THRESHOLD = 0.25;
 
 // The termination thresholds. Documented in the header
-static double JT_X_THRESHOLD        = 1e-8;
-static double UPDATE_THRESHOLD      = 1e-8;
-static double TRUSTREGION_THRESHOLD = 1e-8;
+static float JT_X_THRESHOLD        = 1e-8;
+static float UPDATE_THRESHOLD      = 1e-8;
+static float TRUSTREGION_THRESHOLD = 1e-8;
 
 // if I ever see a singular JtJ, I factor JtJ + LAMBDA*I from that point on
 #define LAMBDA_INITIAL 1e-10
@@ -55,11 +55,11 @@ void dogleg_setDebug(int debug)
 {
   DOGLEG_DEBUG = debug;
 }
-void dogleg_setInitialTrustregion(double t)
+void dogleg_setInitialTrustregion(float t)
 {
   TRUSTREGION0 = t;
 }
-void dogleg_setThresholds(double Jt_x, double update, double trustregion)
+void dogleg_setThresholds(float Jt_x, float update, float trustregion)
 {
   if(Jt_x > 0.0)        JT_X_THRESHOLD        = Jt_x;
   if(update > 0.0)      UPDATE_THRESHOLD      = update;
@@ -71,8 +71,8 @@ void dogleg_setMaxIterations(int n)
 {
   MAX_ITERATIONS = n;
 }
-void dogleg_setTrustregionUpdateParameters(double downFactor, double downThreshold,
-                                           double upFactor,   double upThreshold)
+void dogleg_setTrustregionUpdateParameters(float downFactor, float downThreshold,
+                                           float upFactor,   float upThreshold)
 {
   TRUSTREGION_DECREASE_FACTOR    = downFactor;
   TRUSTREGION_DECREASE_THRESHOLD = downThreshold;
@@ -87,46 +87,46 @@ void dogleg_setTrustregionUpdateParameters(double downFactor, double downThresho
 // general boring linear algebra stuff
 // should really come from BLAS or libminimath
 //////////////////////////////////////////////////////////////////////////////////////////
-static double norm2(const double* x, unsigned int n)
+static float norm2(const float* x, unsigned int n)
 {
-  double result = 0;
+  float result = 0;
   for(unsigned int i=0; i<n; i++)
     result += x[i]*x[i];
   return result;
 }
-static double inner(const double* x, const double* y, unsigned int n)
+static float inner(const float* x, const float* y, unsigned int n)
 {
-  double result = 0;
+  float result = 0;
   for(unsigned int i=0; i<n; i++)
     result += x[i]*y[i];
   return result;
 }
-static void vec_copy_scaled(double* dest,
-                            const double* v, double scale, int n)
+static void vec_copy_scaled(float* dest,
+                            const float* v, float scale, int n)
 {
   for(int i=0; i<n; i++)
     dest[i] = scale * v[i];
 }
-static void vec_add(double* dest,
-                    const double* v0, const double* v1, int n)
+static void vec_add(float* dest,
+                    const float* v0, const float* v1, int n)
 {
   for(int i=0; i<n; i++)
     dest[i] = v0[i] + v1[i];
 }
-static void vec_sub(double* dest,
-                    const double* v0, const double* v1, int n)
+static void vec_sub(float* dest,
+                    const float* v0, const float* v1, int n)
 {
   for(int i=0; i<n; i++)
     dest[i] = v0[i] - v1[i];
 }
-static void vec_negate(double* v, int n)
+static void vec_negate(float* v, int n)
 {
   for(int i=0; i<n; i++)
     v[i] *= -1.0;
 }
 // computes a + k*(b-a)
-static void vec_interpolate(double* dest,
-                            const double* a, double k, const double* b_minus_a,
+static void vec_interpolate(float* dest,
+                            const float* a, float k, const float* b_minus_a,
                             int n)
 {
   for(int i=0; i<n; i++)
@@ -135,10 +135,10 @@ static void vec_interpolate(double* dest,
 
 // It would be nice to use the CHOLMOD implementation of these, but they're
 // licensed under the GPL
-static void mul_spmatrix_densevector(double* dest,
-                                     const cholmod_sparse* A, const double* x)
+static void mul_spmatrix_densevector(float* dest,
+                                     const cholmod_sparse* A, const float* x)
 {
-  memset(dest, 0, sizeof(double) * A->nrow);
+  memset(dest, 0, sizeof(float) * A->nrow);
   for(unsigned int i=0; i<A->ncol; i++)
   {
     for(unsigned int j=P(A, i); j<P(A, i+1); j++)
@@ -148,16 +148,16 @@ static void mul_spmatrix_densevector(double* dest,
     }
   }
 }
-static double norm2_mul_spmatrix_t_densevector(const cholmod_sparse* At, const double* x)
+static float norm2_mul_spmatrix_t_densevector(const cholmod_sparse* At, const float* x)
 {
   // computes norm2(transpose(At) * x). For each row of A (col of At) I
   // compute that element of A*x, and accumulate it immediately towards the
   // norm
-  double result = 0.0;
+  float result = 0.0;
 
   for(unsigned int i=0; i<At->ncol; i++)
   {
-    double dotproduct = 0.0;
+    float dotproduct = 0.0;
     for(unsigned int j=P(At, i); j<P(At, i+1); j++)
     {
       int row = I(At, j);
@@ -173,7 +173,7 @@ static double norm2_mul_spmatrix_t_densevector(const cholmod_sparse* At, const d
 // routines for gradient testing
 //////////////////////////////////////////////////////////////////////////////////////////
 #define GRADTEST_DELTA 1e-6
-static double getGrad(unsigned int var, int meas, const cholmod_sparse* Jt)
+static float getGrad(unsigned int var, int meas, const cholmod_sparse* Jt)
 {
   int row     = P(Jt, meas);
   int rownext = P(Jt, meas+1);
@@ -188,18 +188,18 @@ static double getGrad(unsigned int var, int meas, const cholmod_sparse* Jt)
   return nan("nogradient");
 }
 
-void dogleg_testGradient(unsigned int var, const double* p0,
+void dogleg_testGradient(unsigned int var, const float* p0,
                          unsigned int Nstate, unsigned int Nmeas, unsigned int NJnnz,
                          dogleg_callback_t* f, void* cookie)
 {
-  double* x0 = malloc(Nmeas  * sizeof(double));
-  double* x  = malloc(Nmeas  * sizeof(double));
-  double* p  = malloc(Nstate * sizeof(double));
+  float* x0 = malloc(Nmeas  * sizeof(float));
+  float* x  = malloc(Nmeas  * sizeof(float));
+  float* p  = malloc(Nstate * sizeof(float));
   ASSERT(x0);
   ASSERT(x);
   ASSERT(p);
 
-  memcpy(p, p0, Nstate * sizeof(double));
+  memcpy(p, p0, Nstate * sizeof(float));
 
 
   cholmod_common _cholmod_common;
@@ -229,8 +229,8 @@ void dogleg_testGradient(unsigned int var, const double* p0,
   for(unsigned int i=0; i<Nmeas; i++)
   {
     // estimated gradients at the midpoint between x and x0
-    double gObs = (x[i] - x0[i]) / GRADTEST_DELTA;
-    double gRep = (getGrad(var, i, Jt0) + getGrad(var, i, Jt)) / 2.0;
+    float gObs = (x[i] - x0[i]) / GRADTEST_DELTA;
+    float gRep = (getGrad(var, i, Jt0) + getGrad(var, i, Jt)) / 2.0;
 
     if(isnan(gRep))
     {
@@ -279,9 +279,9 @@ static void computeCauchyUpdate(dogleg_operatingPoint_t* point)
   // Summary:
   // the steepest direction is parallel to Jt*x. The Cauchy point is at
   // k*Jt*x where k = -norm2(Jt*x)/norm2(J*Jt*x)
-  double norm2_Jt_x       = norm2(point->Jt_x, point->Jt->nrow);
-  double norm2_J_Jt_x     = norm2_mul_spmatrix_t_densevector(point->Jt, point->Jt_x);
-  double k                = -norm2_Jt_x / norm2_J_Jt_x;
+  float norm2_Jt_x       = norm2(point->Jt_x, point->Jt->nrow);
+  float norm2_J_Jt_x     = norm2_mul_spmatrix_t_densevector(point->Jt, point->Jt_x);
+  float k                = -norm2_Jt_x / norm2_J_Jt_x;
 
   point->updateCauchy_lensq = k*k * norm2_Jt_x;
 
@@ -341,7 +341,7 @@ static void computeGaussNewtonUpdate(dogleg_operatingPoint_t* point, dogleg_solv
                               .d     = point->Jt->nrow,
                               .x     = point->Jt_x,
                               .xtype = CHOLMOD_REAL,
-                              .dtype = CHOLMOD_DOUBLE};
+                              .dtype = CHOLMOD_SINGLE};
 
   if(point->updateGN_cholmoddense != NULL)
     cholmod_free_dense(&point->updateGN_cholmoddense, &ctx->common);
@@ -359,9 +359,9 @@ static void computeGaussNewtonUpdate(dogleg_operatingPoint_t* point, dogleg_solv
     fprintf(stderr, "gn step size %.6g\n", sqrt(point->updateGN_lensq));
 }
 
-static void computeInterpolatedUpdate(double*                  update_dogleg,
+static void computeInterpolatedUpdate(float*                  update_dogleg,
                                       dogleg_operatingPoint_t* point,
-                                      double                   trustregion)
+                                      float                   trustregion)
 {
   // I interpolate between the Cauchy-point step and the Gauss-Newton step
   // to find a step that takes me to the edge of my trust region.
@@ -378,22 +378,22 @@ static void computeInterpolatedUpdate(double*                  update_dogleg,
   // to make 100% sure the discriminant is positive, I choose a to be the
   // cauchy step.  The solution must have k in [0,1], so I much have the
   // +sqrt side, since the other one is negative
-  double        dsq    = trustregion*trustregion;
-  double        norm2a = point->updateCauchy_lensq;
-  const double* a      = point->updateCauchy;
-  const double* b      = point->updateGN_cholmoddense->x;
-  double        a_minus_b[point->Jt->nrow];
+  float        dsq    = trustregion*trustregion;
+  float        norm2a = point->updateCauchy_lensq;
+  const float* a      = point->updateCauchy;
+  const float* b      = point->updateGN_cholmoddense->x;
+  float        a_minus_b[point->Jt->nrow];
 
   vec_sub(a_minus_b, a, b, point->Jt->nrow);
-  double l2           = norm2(a_minus_b,    point->Jt->nrow);
-  double neg_c        = inner(a_minus_b, a, point->Jt->nrow);
-  double discriminant = neg_c*neg_c - l2* (norm2a - dsq);
+  float l2           = norm2(a_minus_b,    point->Jt->nrow);
+  float neg_c        = inner(a_minus_b, a, point->Jt->nrow);
+  float discriminant = neg_c*neg_c - l2* (norm2a - dsq);
   if(discriminant < 0.0)
   {
     fprintf(stderr, "negative discriminant: %.6g!\n", discriminant);
     discriminant = 0.0;
   }
-  double k = (neg_c + sqrt(discriminant))/l2;
+  float k = (neg_c + sqrt(discriminant))/l2;
 
   // I can rehash this to not store this data array at all, but it's clearer
   // to
@@ -401,7 +401,7 @@ static void computeInterpolatedUpdate(double*                  update_dogleg,
 
   if( DOGLEG_DEBUG )
   {
-    double updateNorm = norm2(update_dogleg, point->Jt->nrow);
+    float updateNorm = norm2(update_dogleg, point->Jt->nrow);
     fprintf(stderr, "k %.6g, norm %.6g\n", k, sqrt(updateNorm));
   }
 }
@@ -435,7 +435,7 @@ static int computeCallbackOperatingPoint(dogleg_operatingPoint_t* point, dogleg_
 
   return 1;
 }
-static double computeExpectedImprovement(const double* step, const dogleg_operatingPoint_t* point)
+static float computeExpectedImprovement(const float* step, const dogleg_operatingPoint_t* point)
 {
   // My error function is F=norm2(f(p + step)). F(0) - F(step) =
   // = norm2(x) - norm2(x + J*step) = -2*inner(x,J*step) - norm2(J*step)
@@ -449,14 +449,14 @@ static double computeExpectedImprovement(const double* step, const dogleg_operat
 // takes a step from the given operating point, using the given trust region
 // radius. Returns the expected improvement, based on the step taken and the
 // linearized x(p). If we can stop iterating, returns a negative number
-static double takeStepFrom(dogleg_operatingPoint_t* pointFrom, double* newp,
-                           double trustregion, dogleg_solverContext_t* ctx)
+static float takeStepFrom(dogleg_operatingPoint_t* pointFrom, float* newp,
+                           float trustregion, dogleg_solverContext_t* ctx)
 {
   if( DOGLEG_DEBUG )
     fprintf(stderr, "taking step with trustregion %.6g\n", trustregion);
 
-  double update_array[pointFrom->Jt->nrow];
-  double* update;
+  float update_array[pointFrom->Jt->nrow];
+  float* update;
 
 
   computeCauchyUpdate(pointFrom);
@@ -511,7 +511,7 @@ static double takeStepFrom(dogleg_operatingPoint_t* pointFrom, double* newp,
 
   // take the step
   vec_add(newp, pointFrom->p, update, pointFrom->Jt->nrow);
-  double expectedImprovement = computeExpectedImprovement(update, pointFrom);
+  float expectedImprovement = computeExpectedImprovement(update, pointFrom);
 
   // are we done? For each state variable I look at the update step. If all the elements fall below
   // a threshold, I call myself done
@@ -532,12 +532,12 @@ static double takeStepFrom(dogleg_operatingPoint_t* pointFrom, double* newp,
 // accepted)
 static int evaluateStep_adjustTrustRegion(const dogleg_operatingPoint_t* before,
                                           const dogleg_operatingPoint_t* after,
-                                          double* trustregion,
-                                          double expectedImprovement)
+                                          float* trustregion,
+                                          float expectedImprovement)
 {
-  double observedImprovement = before->norm2_x - after->norm2_x;
+  float observedImprovement = before->norm2_x - after->norm2_x;
 
-  double rho = observedImprovement / expectedImprovement;
+  float rho = observedImprovement / expectedImprovement;
   if( DOGLEG_DEBUG )
   {
     fprintf(stderr, "observed/expected improvement: %.6g/%.6g. rho = %.6g\n",
@@ -573,7 +573,7 @@ static int evaluateStep_adjustTrustRegion(const dogleg_operatingPoint_t* before,
 
 static int runOptimizer(dogleg_solverContext_t* ctx)
 {
-  double trustregion = TRUSTREGION0;
+  float trustregion = TRUSTREGION0;
   int stepCount = 0;
 
   if( computeCallbackOperatingPoint(ctx->beforeStep, ctx) )
@@ -596,7 +596,7 @@ static int runOptimizer(dogleg_solverContext_t* ctx)
       if( DOGLEG_DEBUG )
         fprintf(stderr, "\n");
 
-      double expectedImprovement =
+      float expectedImprovement =
         takeStepFrom(ctx->beforeStep, ctx->afterStep->p, trustregion, ctx);
 
       // negative expectedImprovement is used to indicate that we're done
@@ -744,7 +744,7 @@ void dogleg_freeContext(dogleg_solverContext_t** ctx)
   *ctx = NULL;
 }
 
-double dogleg_optimize(double* p, unsigned int Nstate,
+float dogleg_optimize(float* p, unsigned int Nstate,
                        unsigned int Nmeas, unsigned int NJnnz,
                        dogleg_callback_t* f,
                        void* cookie,
@@ -770,15 +770,15 @@ double dogleg_optimize(double* p, unsigned int Nstate,
   ctx->beforeStep = allocOperatingPoint(Nstate, Nmeas, NJnnz, &ctx->common);
   ctx->afterStep  = allocOperatingPoint(Nstate, Nmeas, NJnnz, &ctx->common);
 
-  memcpy(ctx->beforeStep->p, p, Nstate * sizeof(double));
+  memcpy(ctx->beforeStep->p, p, Nstate * sizeof(float));
 
   // everything is set up, so run the solver!
   int    numsteps = runOptimizer(ctx);
-  double norm2_x  = ctx->beforeStep->norm2_x;
+  float norm2_x  = ctx->beforeStep->norm2_x;
 
   // runOptimizer places the most recent results into beforeStep in preparation for another
   // iteration
-  memcpy(p, ctx->beforeStep->p, Nstate * sizeof(double));
+  memcpy(p, ctx->beforeStep->p, Nstate * sizeof(float));
 
   if( returnContext == NULL )
     dogleg_freeContext(&ctx);

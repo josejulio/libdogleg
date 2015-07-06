@@ -5,25 +5,25 @@
 
 #include <cholmod.h>
 
-typedef void (dogleg_callback_t)(const double*   p,
-                                 double*         x,
+typedef void (dogleg_callback_t)(const float*   p,
+                                 float*         x,
                                  cholmod_sparse* Jt,
                                  void*           cookie);
 
 // an operating point of the solver
 typedef struct
 {
-  double*         p;
-  double*         x;
-  double          norm2_x;
+  float*         p;
+  float*         x;
+  float          norm2_x;
   cholmod_sparse* Jt;
-  double*         Jt_x;
+  float*         Jt_x;
 
   // the cached update vectors. It's useful to cache these so that when a step is rejected, we can
   // reuse these when we retry
-  double*        updateCauchy;
+  float*        updateCauchy;
   cholmod_dense* updateGN_cholmoddense;
-  double         updateCauchy_lensq, updateGN_lensq; // update vector lengths
+  float         updateCauchy_lensq, updateGN_lensq; // update vector lengths
 
   // whether the current update vectors are correct or not
   int updateCauchy_valid, updateGN_valid;
@@ -54,7 +54,7 @@ typedef struct
   // from that point on. This is a simple and fast way to deal with
   // singularities. This constant starts at 0, and is increased every time a
   // singular JtJ is encountered. This is suboptimal but works for me for now.
-  double                   lambda;
+  float                   lambda;
 } dogleg_solverContext_t;
 
 
@@ -68,12 +68,12 @@ typedef struct
 // If we want to get the full solver state when we're done, a non-NULL
 // returnContext pointer can be given. If this is done then THE USER IS
 // RESPONSIBLE FOR FREEING ITS MEMORY WITH dogleg_freeContext()
-double dogleg_optimize(double* p, unsigned int Nstate,
+float dogleg_optimize(float* p, unsigned int Nstate,
                        unsigned int Nmeas, unsigned int NJnnz,
                        dogleg_callback_t* f, void* cookie,
                        dogleg_solverContext_t** returnContext);
 
-void dogleg_testGradient(unsigned int var, const double* p0,
+void dogleg_testGradient(unsigned int var, const float* p0,
                          unsigned int Nstate, unsigned int Nmeas, unsigned int NJnnz,
                          dogleg_callback_t* f, void* cookie);
 
@@ -89,8 +89,8 @@ void dogleg_freeContext(dogleg_solverContext_t** ctx);
 // solver parameters
 ////////////////////////////////////////////////////////////////
 void dogleg_setMaxIterations(int n);
-void dogleg_setTrustregionUpdateParameters(double downFactor, double downThreshold,
-                                           double upFactor,   double upThreshold);
+void dogleg_setTrustregionUpdateParameters(float downFactor, float downThreshold,
+                                           float upFactor,   float upThreshold);
 
 // lots of solver-related debug output when on
 void dogleg_setDebug(int debug);
@@ -103,7 +103,7 @@ void dogleg_setDebug(int debug);
 // The size of the trust region at start. It is cheap to reject a too-large
 // trust region, so this should be something "large". Say 10x the length of an
 // "expected" step size
-void dogleg_setInitialTrustregion(double t);
+void dogleg_setInitialTrustregion(float t);
 
 // termination thresholds. These really depend on the scaling of the input
 // problem, so the user should set these appropriately
@@ -123,5 +123,4 @@ void dogleg_setInitialTrustregion(double t);
 //   { we are done; }
 //
 // to leave a particular threshold alone, use a value <= 0 here
-void dogleg_setThresholds(double Jt_x, double update, double trustregion);
-
+void dogleg_setThresholds(float Jt_x, float update, float trustregion);
